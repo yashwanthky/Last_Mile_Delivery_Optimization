@@ -1,0 +1,146 @@
+!@encoding CP1252
+model ModelName
+uses "mmxprs"; !gain access to the Xpress-Optimizer solver
+
+setparam("XPRS_MAXTIME", 900)
+
+declarations
+	nodes = 1..17			!All nodes including start and end
+	customerNodes = 2..16	!Customer nodes without start and end
+	drones = 1..3
+
+! Binary variable for checking truck takes arc
+	truckArc : array(nodes, nodes) of mpvar
+	droneArc : array(nodes, nodes, drones) of mpvar  !MN
+
+! Distance arc
+	distance: array(nodes, nodes) of integer
+
+!Position
+	position : array(nodes) of mpvar
+	
+!Inserted by MN
+!Truck node or drone node
+	truckNode : array(nodes) of mpvar
+	droneNode : array(nodes) of mpvar 
+
+!Cost for truck
+	costTruck : real		!Cost per unit for truck travel
+	bigMNumber : real		!Just a big big number
+	costDrone : real		!Cost per unit for drone travel
+	totalCustomer : integer
+end-declarations
+
+!Data Declarations
+costTruck := 10
+costDrone := 3
+
+initializations from 'D:\Academia\Grad - UC MSBANA\Fall 19\BANA 7020 Optimization\Project\Codes\DataInPDF.txt'
+	distance
+end-initializations
+
+!Initializing a big big number
+bigMNumber := 10000
+totalCustomer := 15
+
+!Making the decision variables binary - for Truck arcs
+forall(startNode in nodes, endNode in nodes) truckArc(startNode, endNode) is_binary
+
+!Making the decision variables binary - for Drone arcs - MN
+forall(startNode in nodes, endNode in nodes, drone in drones) droneArc(startNode, endNode, drone) is_binary
+
+!Making truckNode and droneNode decision variables - MN
+forall (customerNode in nodes) truckNode(customerNode) is_binary
+forall (customerNode in nodes) droneNode(customerNode) is_binary
+
+!Making the position an integer array
+forall(node in nodes) position(node) is_integer
+
+!Objective Function
+obj := 
+(sum(startNode in nodes, endNode in nodes)
+	(truckArc(startNode, endNode) * distance(startNode, endNode) * costTruck) + 
+sum(startNode in nodes, endNode in nodes, drone in drones)
+	(droneArc(startNode, endNode, drone) * distance(startNode, endNode) * 2*costDrone))
+
+!Constraints
+
+!Truck related constraints
+	!Truck leaves depot exactly once to some other node
+	sum(endNode in nodes) truckArc(1, endNode) = 1
+	!No node can end at the Depot node
+	sum(startNode in nodes) truckArc(startNode, 1) = 0
+
+	!Truck reaches the depot from exactly one other node
+	sum(startNode in nodes) truckArc(startNode, totalCustomer + 2) = 1
+	!No node can start at the End Depot node
+	sum(endNode in nodes) truckArc(totalCustomer + 2,endNode) = 0
+
+	!Only one arc can be travelled from some arc | outgoing for all nodes is 1
+	forall(customerNode in customerNodes)
+		sum(endNode in nodes) truckArc(customerNode, endNode) = 1 * truckNode(customerNode)
+
+	!Only one arc can be travelled from some arc | incoming for all nodes is 1
+	forall(customerNode in customerNodes)
+		sum(startNode in nodes) truckArc(startNode, customerNode) = 1 * truckNode(customerNode)
+
+	! No node should be selected as both origin and destination at same time
+	forall(node in nodes) truckArc(node,node) = 0
+	forall(node in nodes, drone in drones) droneArc(node,node, drone) = 0
+
+truckArc(1,totalCustomer+2) = 0
+
+!Drone related constraints -MN
+	!Drone cannot be launched from the Depot node
+	forall(drone in drones)
+		sum(endNode in nodes) droneArc(1, endNode, drone) = 0
+	!Drone node cannot end at the Depot Node
+	forall(drone in drones)
+		sum(startNode in nodes) droneArc(startNode, 1, drone) = 0
+
+	!Drone cannot land at the Depot node
+	forall(drone in drones)
+		sum(startNode in nodes) droneArc(startNode, totalCustomer + 2, drone) = 0
+	!No node can start at the End Depot node
+	forall(drone in drones)
+		sum(endNode in nodes) droneArc(totalCustomer + 2,endNode, drone) = 0
+
+!A customer node can be either drone node or truck node
+forall(node in nodes)
+	truckNode(node) + droneNode(node) = 1	
+
+!An arc can be either truck arc or drone arc or neither
+
+forall(startNode in nodes, drone in drones)
+	sum(endNode in nodes) droneArc(startNode, endNode, drone) <= truckNode(startNode)
+
+forall(startNode in nodes, endNode in nodes)
+	sum(drone in drones) droneArc(startNode, endNode, drone) <= 1
+
+forall(endNode in nodes)
+	sum(startNode in nodes, drone in drones) droneArc(startNode, endNode, drone) = 1*droneNode(endNode)
+
+
+!Breaking Loops
+
+position(1) = 1
+position(totalCustomer + 2) = totalCustomer+2
+
+!MTZ position constraint
+forall(startNode in nodes) forall(endNode in nodes)
+	(position(endNode) >= ((position(startNode) + 1) + (sum(node in nodes, drone in drones)droneArc(startNode, node, drone)) - (bigMNumber * (1 - truckArc(startNode, endNode)))))
+
+minimize(obj)
+
+writeln("Begin running model")
+	writeln("\n Total Cost : ", getobjval)
+	forall(startNode in nodes, endNode in nodes|getsol(truckArc(startNode, endNode))>0)
+		writeln("Truck","Start Node: ", startNode, ", EndNode: ", endNode, " - Travel : ", getsol(truckArc(startNode, endNode)))
+	forall(startNode in nodes, endNode in nodes, drone in drones|getsol(droneArc(startNode, endNode, drone))>0)
+		writeln("Drone", drone ," Start Node: ", startNode, ", EndNode: ", endNode, " - Travel : ", getsol(droneArc(startNode, endNode, drone)))
+	forall(node in nodes) writeln("Customer Node ", node," ", getsol(truckNode(node))," ",getsol(droneNode(node)))
+
+	!forall(node in nodes) writeln(getsol(position(node)))
+writeln("End running model")
+
+end-model
