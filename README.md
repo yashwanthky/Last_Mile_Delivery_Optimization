@@ -1,5 +1,5 @@
 # Last Mile Delivery Optimization 
-Optimize last mile delivery using FICO Xpress IVE
+Designed a prototype to optimize costs for last-mile delivery using linear mixed-integer programming in FICO Xpress
 
 ## INTRODUCTION
 
